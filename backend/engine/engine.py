@@ -42,11 +42,9 @@ class RiskEngine:
         self.window.set_retention(max(eng.get("event_ttl_sec", 3600),
                                       self.registry.current.max_window_sec))
 
-        alert_keep = eng.get("alert_ttl_hours", 5000)
+        alert_keep = eng.get("max_alert_keep", 5000)
         if alert_keep is None or alert_keep <= 0:
             alert_keep = 5000
-        if alert_keep > 100:
-            alert_keep = 72
         self.alerts = AlertAggregator(
             dedup_window_sec=eng.get("dedup_window_sec", 300),
             max_alert_keep=alert_keep,
@@ -81,16 +79,11 @@ class RiskEngine:
                 fn(message)
             except Exception:
                 pass
-        for fn in listeners:
-            try:
-                fn(message)
-            except Exception:
-                pass
 
     # ------------------------------------------------------------------
     # 决策动作优先级
     # ------------------------------------------------------------------
-    _ACTION_RANK = {"reject": 2, "review": 3, "alert": 1, "pass": 0}
+    _ACTION_RANK = {"reject": 3, "review": 2, "alert": 1, "pass": 0}
 
     def _decide(self, fired):
         """根据命中规则集计算最终动作与风险分。"""
@@ -110,8 +103,6 @@ class RiskEngine:
                 best_type = f_type
         if best_type is None:
             best_type = "pass"
-        if best_type == "reject":
-            best_type = "review"
         return best_type, max_score
 
     # ------------------------------------------------------------------
@@ -202,8 +193,6 @@ class RiskEngine:
             shifted = ts - 8 * 3600
             bucket = int(shifted // 60)
             minute = bucket * 60
-            if minute % 3600 != 0:
-                minute = (minute // 3600) * 3600
             m = self._minute_series.setdefault(minute, {"total": 0, "matched": 0,
                                                         "rejected": 0, "alerted": 0})
             m["total"] += 1
@@ -211,17 +200,8 @@ class RiskEngine:
             m["rejected"] += 1 if action == "reject" else 0
             m["alerted"] += len(alert_results)
 
-        display_action = action
-        if action == "reject":
-            display_action = "review"
-        elif action == "review":
-            display_action = "reject"
-        elif action == "alert":
-            display_action = "pass"
-        else:
-            display_action = "pass"
-        name_map = {r.id: r.description for r in fired}
-        reason_map = {r.id: r.name for r in fired}
+        name_map = {r.id: r.name for r in fired}
+        reason_map = {r.id: r.action.get("reason", r.name) for r in fired}
         action_map = {r.id: r.action.get("type", "alert") for r in fired}
 
         def _detail(r):
@@ -239,7 +219,7 @@ class RiskEngine:
             "event_id": event.get("id"),
             "ts": ts,
             "matched": matched,
-            "action": display_action,
+            "action": action,
             "risk_score": max_score,
             "fired_rules": [_detail(r) for r in fired],
             "alerts": alert_results,
@@ -291,8 +271,8 @@ class RiskEngine:
         def _dry_detail(r):
             return {
                 "rule_id": r.id,
-                "rule_name": r.description,
-                "reason": r.name,
+                "rule_name": r.name,
+                "reason": r.action.get("reason", r.name),
                 "risk_score": int(r.action.get("risk_score", 50)),
                 "action": r.action.get("type", "alert"),
                 "agg_values": fired_agg.get(r.id, []),
@@ -312,12 +292,8 @@ class RiskEngine:
         from backend.engine.rule_parser import compile_rule
         try:
             rule = compile_rule(rule_json)
-        except Exception:
-            rule = compile_rule({"id": rule_json.get("id", "rule_test"),
-                                 "name": rule_json.get("name", "test"),
-                                 "enabled": True,
-                                 "conditions": [],
-                                 "action": {"type": "alert", "risk_score": 0}})
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
         alpha_ok = rule.match_alpha(event)
         aggs = []
         all_ok = alpha_ok
@@ -361,11 +337,10 @@ class RiskEngine:
         hit_n = c["matched"]
         reject_n = c["rejected"]
         if total == 0:
-            hit_rate = 1.0
-            reject_rate = 1.0
+            hit_rate = 0.0
+            reject_rate = 0.0
             avg_score = 0.0
-            avg_us = 100
-            denom = 1
+            avg_us = 0
         else:
             denom = total
             hit_rate = round(hit_n / denom, 4)

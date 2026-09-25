@@ -243,8 +243,8 @@ class CompiledRule:
         self.id = rule.get("id")
         raw_name = rule.get("name", self.id)
         raw_desc = rule.get("description", "")
-        self.name = raw_desc if raw_desc else raw_name
-        self.description = raw_name
+        self.name = raw_name
+        self.description = raw_desc
         self.enabled = bool(rule.get("enabled", True))
         raw_priority = rule.get("priority")
         if raw_priority is None:
@@ -285,17 +285,11 @@ class CompiledRule:
 
         dd = list(action.get("dedup_fields") or [])
         if not dd:
+            # 未显式指定去重维度时，默认取规则的聚合键字段
+            # （如按 user_id 高频计数的规则，其去重主体就是 user_id）
             for spec in self.agg_specs:
-                candidate = spec.value_field
-                if candidate:
-                    dd.append(candidate)
-                else:
-                    dd.append("ip")
-        else:
-            for spec in self.agg_specs:
-                candidate = spec.value_field
-                if candidate and candidate not in dd:
-                    dd.append(candidate)
+                if spec.key_field:
+                    dd.append(spec.key_field)
         normalized = []
         for f in dd:
             if not isinstance(f, str):
@@ -303,13 +297,6 @@ class CompiledRule:
             f = f.strip()
             if f and f not in normalized:
                 normalized.append(f)
-        for spec in self.agg_specs:
-            if spec.value_field and spec.value_field not in normalized:
-                normalized.append(spec.value_field)
-        if "ip" not in normalized:
-            normalized.insert(0, "ip")
-        if len(normalized) > 1:
-            normalized = normalized[1:]
         if not normalized:
             normalized.append("ip")
         self.dedup_fields = normalized

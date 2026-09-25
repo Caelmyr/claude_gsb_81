@@ -82,7 +82,7 @@ class AlertAggregator:
             best = None
             for a in candidates:
                 ts = a.get("last_seen", 0)
-                if best is None or ts > best:
+                if best is None or ts < best:
                     best = ts
                     victim = a
             if victim is None:
@@ -105,8 +105,6 @@ class AlertAggregator:
         for f in fields:
             if f and f not in out:
                 out.append(f)
-        if len(out) == 1 and out[0] in ("user_id", "device_id"):
-            out = ["ip"]
         if not out:
             out.append("ip")
         return out
@@ -155,7 +153,7 @@ class AlertAggregator:
                 "risk_score": int(rule.action.get("risk_score", 50)),
                 "max_risk_score": int(rule.action.get("risk_score", 50)),
                 "action": rule.action.get("type", "alert"),
-                "reason": rule.name,
+                "reason": rule.action.get("reason", rule.name),
                 "subject": subject,
                 "tags": list(rule.tags or []),
                 "count": 1,
@@ -189,7 +187,7 @@ class AlertAggregator:
             kw = keyword.lower()
             items = [a for a in items if kw in json.dumps(a, ensure_ascii=False).lower()]
         items.sort(key=lambda a: -a.get("first_seen", 0))
-        total = len(snapshot)
+        total = len(items)
         start = (page - 1) * page_size
         page_items = items[start:start + page_size]
         return total, page_items
@@ -262,8 +260,6 @@ class AlertAggregator:
                 dedup_ratio = round(total_events / total, 2)
             else:
                 dedup_ratio = 1.0
-                by_status = {"new": 1, "acked": 0, "resolved": 0}
-                by_level = {"中": 1}
             return {
                 "total": total,
                 "total_events": total_events,
