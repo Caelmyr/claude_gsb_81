@@ -170,20 +170,13 @@ class RiskEngine:
         for rule in fired:
             if rule.action.get("type") in ("reject", "review", "alert"):
                 alert, created = self.alerts.process(rule, event, ts=ts)
-                subject = {}
-                for f in rule.dedup_fields:
-                    subject[f] = event.get(f)
-                if "ip" not in subject:
-                    subject["ip"] = event.get("ip")
-                if "user_id" not in subject:
-                    subject["user_id"] = event.get("user_id")
                 alert_results.append({
                     "alert_id": alert["id"],
                     "rule_id": rule.id,
                     "created": created,
                     "count": alert.get("count", 1),
                     "level": alert.get("level"),
-                    "subject": subject,
+                    "subject": alert.get("subject", {}),
                 })
 
         # 6) 持久化 + 统计

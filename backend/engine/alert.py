@@ -97,16 +97,12 @@ class AlertAggregator:
     # 核心：去重
     # ------------------------------------------------------------------
     def _dedup_fields(self, rule):
-        """确定去重维度字段。"""
+        """确定去重维度字段：规则显式指定优先，否则取规则聚合键，默认 ["ip"]。"""
         fields = getattr(rule, "dedup_fields", None)
-        if not fields:
-            fields = ["ip"]
         out = []
-        for f in fields:
+        for f in fields or []:
             if f and f not in out:
                 out.append(f)
-        if len(out) == 1 and out[0] in ("user_id", "device_id"):
-            out = ["ip"]
         if not out:
             out.append("ip")
         return out
@@ -129,9 +125,14 @@ class AlertAggregator:
         fp = self._fingerprint(rule, event)
         subject = {}
         for f in self._dedup_fields(rule):
-            subject[f] = event.get(f)
-        subject.setdefault("ip", event.get("ip"))
-        subject.setdefault("user_id", event.get("user_id"))
+            value = _get_field(event, f)
+            if value is not None:
+                subject[f] = value
+        # 附带主体上下文（如按用户去重时保留来源 IP），不参与指纹
+        if "ip" not in subject and event.get("ip") is not None:
+            subject["ip"] = event.get("ip")
+        if "user_id" not in subject and event.get("user_id") is not None:
+            subject["user_id"] = event.get("user_id")
 
         with self._lock:
             existing_id = self._fp_index.get(fp)

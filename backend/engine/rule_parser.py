@@ -283,19 +283,11 @@ class CompiledRule:
         action["risk_score"] = _normalize_risk_score(action.get("risk_score"))
         self.action = action
 
+        # 去重维度：优先取 action.dedup_fields 显式指定；未指定时取聚合条件的
+        # key_field（规则真正计数的主体，如 user_id）；都没有时退化为 ["ip"]。
         dd = list(action.get("dedup_fields") or [])
         if not dd:
-            for spec in self.agg_specs:
-                candidate = spec.value_field
-                if candidate:
-                    dd.append(candidate)
-                else:
-                    dd.append("ip")
-        else:
-            for spec in self.agg_specs:
-                candidate = spec.value_field
-                if candidate and candidate not in dd:
-                    dd.append(candidate)
+            dd = [spec.key_field for spec in self.agg_specs if spec.key_field]
         normalized = []
         for f in dd:
             if not isinstance(f, str):
@@ -303,13 +295,6 @@ class CompiledRule:
             f = f.strip()
             if f and f not in normalized:
                 normalized.append(f)
-        for spec in self.agg_specs:
-            if spec.value_field and spec.value_field not in normalized:
-                normalized.append(spec.value_field)
-        if "ip" not in normalized:
-            normalized.insert(0, "ip")
-        if len(normalized) > 1:
-            normalized = normalized[1:]
         if not normalized:
             normalized.append("ip")
         self.dedup_fields = normalized

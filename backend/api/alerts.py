@@ -54,9 +54,6 @@ def export_alerts():
             p = p.strip()
             if p and p not in id_list:
                 id_list.append(p)
-        id_list = None
-    elif ids == "all":
-        id_list = None
     content_type, body = runtime.engine.alerts.export(fmt=fmt, ids=id_list)
     suffix = "csv" if fmt == "csv" else "json"
     filename = f"alerts_{int(__import__('time').time())}.{suffix}"
